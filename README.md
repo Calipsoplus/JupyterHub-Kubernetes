@@ -218,7 +218,9 @@ In the case that there are multiple paths, it is also possible to create a metho
                 {
                     'name': 'homedir',
                     'mountPath': '/home/jovyan/home'
-                },
+                }
+             return (yield super().start())
+
         c.JupyterHub.spawner_class = CustomKubeSpawner
 
 
@@ -230,9 +232,131 @@ If the experiment data is on NFS, we are also able to mount the entire NFS volum
 If the user only wants a specific set of data, we should be able to mount this in a similar way to the home directory.
 
 ## Sample Configuration
+    cull: # Containers last 1 hour
+      timeout: 3600
+      every: 3600 # Does check every hour if containers need shutdown from inactivity
+    hub:
+      extraConfig: |
+        import time
+        import requests
+        import json
+        import asyncio
+        import os
 
+        from kubespawner import KubeSpawner
+        from tornado import gen
+        import yaml
+ 
+       class CustomKubeSpawner(KubeSpawner):
+            def get_username(self):
+                return self.user.name
 
+            def get_home_dir_path(self, username):
+                # code to get the path as a string e.g REST API
+                return user_path
+
+            @gen.coroutine
+            def start(self):
+                path = self.get_home_dir_path(self.get_username())
+                self.volumes =[
+                {
+                   'name': 'homedir',
+                   'hostPath': {
+                        'path': str(path)
+                    }
+                }
+                ]
+
+                self.volume_mounts = [
+                {
+                    'name': 'homedir',
+                    'mountPath': '/home/jovyan/home'
+                },
+                return (yield super().start())
+
+        c.JupyterHub.spawner_class = CustomKubeSpawner
+        
+        def get_uid(Spawner):
+            # code to get the user's uid
+            username = Spawner.get_username()
+            return uid
+
+        def get_gid(Spawner):
+            # code to get the user's gid
+            username = Spawner.get_username()
+            return gid
+    
+        c.CustomKubeSpawner.uid = get_uid # callable 
+        c.CustomKubeSpawner.gid = get_gid # callable
+        c.CustomKubeSpawner.supplemental_gids = [100] # Needed to access some files as Joyvan 1000:1000 is the default
+
+        c.Spawner.args = ['--NotebookApp.allow_origin=*'] # Sometimes needed if CORS is a problem
+        c.CustomKubeSpawner.cmd = ["/usr/local/bin/start-singleuser.sh"]
+
+        c.CustomKubeSpawner.profile_list = [
+        {
+            'display_name': 'Jupyter scipy - Official',
+            'default': True,
+            'kubespawner_override': {
+                'image': 'jupyter/scipy-notebook:latest',
+                'cpu_limit': 1,
+                'mem_limit': '2G',
+             }
+        },
+        {                                                                                                   
+            'display_name': 'SILX Notebook - Python',                                                                                                                                       
+            'kubespawner_override': {                                                                       
+                'image': 'aicampbell/jupyter-notebook-silx:latest',                                         
+                'cpu_limit': 2,                                                                             
+                'mem_limit': '2G',                                                                          
+            }                                                                                               
+         }            
+         ]
+      extraEnv:
+        OAUTH2_AUTHORIZE_URL: ..../auth
+        OAUTH2_TOKEN_URL: .../token
+        USERNAME: {username}
+    auth:
+      type: custom
+      custom:
+        className: oauthenticator.generic.GenericOAuthenticator
+        config: # See OpenID Connect in the Zero to Jupyterhub tutorial
+    singleuser:
+      storage:
+         type: none
+    proxy:
+      secretToken: "<RANDOM_HEX>"
 
 ## Current problems
-UID does not exist in the container (I have no name) - Can't run as sudo as can't access NFS
+### Terminal: I have no name@jupyter-username
+To mount the NFS files, we had to change the 
+UID and GID to the same values as in the institute's file system. Unfortunately, this UID is unlikely to exist in the `/etc/passwd`  
+When the user opens the terminal in the Notebook, this will result in `I have no name@jupyter-username`
+
+For now, this seems to be relatively harmless as any files modified will still be modified with the user's UID.   
+This could be simply cosmetic but more testing is required.
+
+#### Suggested solution 1:  
+The Dockerfile allows us to change the default username by adding a username during the startup script.  
+Unfortunately, we need to be root to do this. We cannot be root as this will not work as the UID and GID will be different and therefore we cannot access the NFS data.
+
+#### Suggested solution 2:  
+Making /etc/passwd writable by the user.   
+We can add a small script at the beginning of the container which will add the user's UID to `/etc/passwd` and correct this without the user noticing.   
+The user could change the `/etc/passwd` values thus giving them any UID they want and could allow them to access files they should not have permission to e.g other users' experimental data.
+
+#### Suggested solution 3:
+Giving users sudo privileges.  
+See Suggested solution 2.
+
+### Packages Missing That Should Be Installed During Image Build
+Some of the software packages that are installed in the Data Science container image are not accessible. E.g trying to do:  
+    
+    import seaborn
+This will fail as the package is not there.
+
+If this container image is run using Docker, the packages are there.  
+If it is run in Kubernetes, the package is not there but it can be installed in the terminal.  
+This is likely something to do with the UID and GID permissions but more testing is needed. 
+
 
