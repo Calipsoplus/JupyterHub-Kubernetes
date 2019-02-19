@@ -4,6 +4,8 @@ Resources on how to set up Jupyterhub on a Kubernetes cluster
 ## Zero To Jupyterhub
 This site contains a guide on how to set up Kubernetes on the popular platforms such as Amazon, Google Cloud, Azure etc as well as on how to configure a Jupyterhub instance.
 
+The configuration tutorial will still work if Kubernetes has been set up on another provider or on baremetal.
+
 Site: https://zero-to-jupyterhub.readthedocs.io/en/latest/  
 Github: https://github.com/jupyterhub/zero-to-jupyterhub-k8s  
 Gitter: https://gitter.im/jupyterhub/jupyterhub
@@ -27,8 +29,7 @@ Kubernetes and Jupyterhub provide many ways to authenticate users using methods 
 https://zero-to-jupyterhub.readthedocs.io/en/latest/authentication.html
 
 ### No Authentication
-If you have tried the most basic Jupyterhub Setup using the guide at the beginning, you will have noticed that there is no set username or password. This means that you can enter any values for the username and\
- password and a container will be spawned with a Notebook for you. This method is useful for testing the notebooks and trying custom notebooks.
+If you have tried the most basic Jupyterhub Setup using the guide at the beginning, you will have noticed that there is no set username or password. This means that you can enter any values for the username and password and a container will be spawned with a Notebook for you. This method is useful for testing the notebooks and trying custom notebooks.
 
 ### OpenID Connect
 OpenID Connect is an identity layer on top of the OAuth 2.0 protocol.
@@ -58,7 +59,7 @@ To have it download only when needed, the following needs to be added to the `co
          tag: 177037d09156
 This will download the official Data Science Notebook with a specific version(tag). Every user will then be given the Data Science Notebook when they spawn a Notebook.
 
-To pre-download and cache the container image for future use, each note in the cluster will need to run the following command:
+To pre-download and cache the container image for future use, each node in the cluster will need to run the following command:
 
 `docker pull jupyter/datascience-notebook`
 
@@ -73,6 +74,8 @@ Assuming that you already have a `Dockerfile` for the image, the image can be bu
 
 To push the new image to Dockerhub, use the command:
 `docker push yourhubusername/yourimage`
+
+Be sure to create your own Dockerhub account before you try to push to it.
 
 ### Github
 #### Docker Stacks
@@ -92,7 +95,9 @@ To install the packages silx and pyFAI, we can create a Dockerfile that looks so
     USER $NB_UID
     RUN conda install pyfai silx -c conda-forge
 
-This will make sure the user is note root and install the silx and pyFAI packages after the DataScience packages. 
+This will make sure the user is not root and install the silx and pyFAI packages after the DataScience packages. 
+
+We can install additional software using `pip`, `conda` as well as `apt-get install` etc. To install something or run a command as root, make sure to change the USER to root before the command.
 
 To add environment variables such as a proxy, we can do:
 
@@ -112,7 +117,7 @@ This option can be set in the `config.yaml` like so:
 
     hub:
       extraConfig: |
-        c.CustomKubeSpawner.profile_list = [
+        c.KubeSpawner.profile_list = [
         {
             'display_name': 'Jupyter scipy - Official',
             'default': True,
@@ -135,8 +140,8 @@ This option can be set in the `config.yaml` like so:
 A checkbox will appear with the container images allowing the user to choose which type of Notebook they want which will then be spawned. It is also possible to add other resources such as GPU's to a profile but this involves enabling them on the Kubernetes cluster.
 
 
-## Mounting additional directories to Notebook
-One of the goals of using the Notebooks was to allow users to access files in their home directory at each institute. This requires each institute to create volumes and mount them to a container.
+## Mounting Additional Directories to Notebook
+One of the goals of using the Notebooks within Calipsoplus was to allow users to access files in their home directory at each institute. This requires each institute to create volumes and mount them to a container.
 
 This will depend on the setup of each institute but in this example NFS will be used.
  
@@ -219,7 +224,8 @@ In the case that there are multiple paths, it is also possible to create a metho
                     'name': 'homedir',
                     'mountPath': '/home/jovyan/home'
                 }
-             return (yield super().start())
+                ]
+                return (yield super().start())
 
         c.JupyterHub.spawner_class = CustomKubeSpawner
 
@@ -334,7 +340,18 @@ UID and GID to the same values as in the institute's file system. Unfortunately,
 When the user opens the terminal in the Notebook, this will result in `I have no name@jupyter-username`
 
 For now, this seems to be relatively harmless as any files modified will still be modified with the user's UID.   
-This could be simply cosmetic but more testing is required.
+This could be simply cosmetic but more testing is required.  
+
+If any packages require the user's username, this will not work as the user is not in `/etc/passwd`.  
+The temporary solution for this is to set certain environment variables. See below:  
+
+    import getpass
+    print getpass.getuser()
+
+The documentation for getpass is as follow:
+>getpass.getuser() 
+>Return the \u201clogin name\u201d of the user. Availability: Unix, Windows.
+>This function checks the environmentvariables LOGNAME, USER, LNAME and USERNAME, in order, and returns the value of the first one which is set to a non-empty string. If none are set, the login name from the password database is returned on systems which support the pwd module, otherwise, an exception is raised.
 
 #### Suggested solution 1:  
 The Dockerfile allows us to change the default username by adding a username during the startup script.  
