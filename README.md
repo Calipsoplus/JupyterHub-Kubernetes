@@ -350,21 +350,21 @@ The temporary solution for this is to set certain environment variables. See bel
 
 The documentation for getpass is as follow:
 >getpass.getuser() 
->Return the \u201clogin name\u201d of the user. Availability: Unix, Windows.
+>Return the login name of the user. Availability: Unix, Windows.
 >This function checks the environmentvariables LOGNAME, USER, LNAME and USERNAME, in order, and returns the value of the first one which is set to a non-empty string. If none are set, the login name from the password database is returned on systems which support the pwd module, otherwise, an exception is raised.
 
-#### Suggested solution 1:  
+#### Possible solution 1:  
 The Dockerfile allows us to change the default username by adding a username during the startup script.  
 Unfortunately, we need to be root to do this. We cannot be root as this will not work as the UID and GID will be different and therefore we cannot access the NFS data.
 
-#### Suggested solution 2:  
+#### Possible solution 2:  
 Making /etc/passwd writable by the user.   
 We can add a small script at the beginning of the container which will add the user's UID to `/etc/passwd` and correct this without the user noticing.   
 The user could change the `/etc/passwd` values thus giving them any UID they want and could allow them to access files they should not have permission to e.g other users' experimental data.
 
-#### Suggested solution 3:
+#### Possible solution 3:
 Giving users sudo privileges.  
-See Suggested solution 2.
+See Possible solution 2.
 
 ### Packages Missing That Should Be Installed During Image Build
 Some of the software packages that are installed in the Data Science container image are not accessible. E.g trying to do:  
