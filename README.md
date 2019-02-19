@@ -103,7 +103,7 @@ To add environment variables such as a proxy, we can do:
     ENV http_proxy=http://proxy.example.com:3128
 
 
-## Adding multiple Notebooks to Spawner
+## Adding Multiple Notebooks to Spawner
 As shown earlier, the user can have a default Notebook which will be spawned as soon as they authenticate on JupyterHub. This Notebook will be the same for everyone with the same packages and resources e.g CPU, RAM etc.
 
 There is also the option to allow the user to choose which kind of Notebook they want when they authenticate. It could be from a Notebook with the Data Science packages installed or it could contain the Tensorflow packages. We are also able to allocate the number of CPUs and RAM given to each type of Notebook which will suit many different purposes.
@@ -145,20 +145,22 @@ Network File System (NFS) is a distributed file system protocol allowing a user 
 
 Many popular Kubernetes providers such as Amazon and Google support NFS but it is more difficult to set up ourselves. For this reason, we are able to access NFS by mounting the NFS file systems onto each Kubernetes cluster node and allow the container to access them from the host. This can be done like so:
 
-     c.KubeSpawner.volumes = [
-        {
-            'name': homedir,
-            'hostPath': {
-                'path': 'path/to/homes/{username}'
+    hub:
+      extraConfig: |
+         c.KubeSpawner.volumes = [
+            {
+                'name': homedir,
+                'hostPath': {
+                    'path': 'path/to/homes/{username}'
+                }
+             }
+        ]
+        c.KubeSpawner.volume_mounts = [
+            {
+                'name': 'homedir',
+                'mountPath': '/home/joyvan/home'
             }
-        }
-    ]
-    c.KubeSpawner.volume_mounts = [
-        {
-            'name': 'homedir'),
-            'mountPath': '/home/joyvan/home'
-        }
-]
+        ]
 
 In the c.KubeSpawner.volumes list, the `{username}` will be replaced with the username that was authenticated. Therefore, if all of the users' home directories are in organised such as  
 `/users/username1`  
@@ -166,19 +168,70 @@ In the c.KubeSpawner.volumes list, the `{username}` will be replaced with the us
 this will be very easy to mount to each container.
 
 #### UID and GID
+One of the requirements of NFS is that each directory can only be accessed if a user's UID and GID have permission to enter that directory. Again this can be set in the `config.yaml` so that a user's Notebook will be run with the user's UID and GID.  
+
+By default, every Notebook is run as root but we can change this to the user's providing we have a way to get this information.
+
+To set the UID and GID for a Notebook, add the following to the `config.yaml`:  
+    
+    hub:
+      extraConfig: |
+          c.KubeSpawner.uid = <value>
+          c.KubeSpawner.gid = <value>
+
 
 ### User Home Directory
 
-#### Assuming Every User is on the Same Path
-E.g /users/<username>
+#### Every User is Not on the Same Path
+If every user is on the same path  e.g /users/<username>, the example above will allow you to mount the home directory.  
 
-#### REST API
-How to get the data from the REST API and mount using HostPath
+In the case that there are multiple paths, it is also possible to create a method which will retrieve the user's home directory path which can then be mounted in the notebook. For this to work, we need to extend the KubeSpawner like this:
+
+    hub:
+      extraConfig: |
+
+        from kubespawner import KubeSpawner
+        from tornado import gen
+        import yaml
+
+        class CustomKubeSpawner(KubeSpawner):
+            def get_username(self):
+                return self.user.name
+
+            def get_home_dir_path(self, username):
+                # code to get the path as a string e.g REST API
+                return user_path
+             
+            @gen.coroutine
+            def start(self):
+                path = self.get_home_dir_path(self.get_username())
+                self.volumes =[
+                {
+                   'name': 'homedir',
+                   'hostPath': {
+                        'path': str(path)
+                    }
+                }
+                ]
+
+                self.volume_mounts = [
+                {
+                    'name': 'homedir',
+                    'mountPath': '/home/jovyan/home'
+                },
+        c.JupyterHub.spawner_class = CustomKubeSpawner
+
 
 ### Experimental Data
-Still in progress - Same method for home directories should work
+Still in progress - Same method for home directories should work.  
+
+If the experiment data is on NFS, we are also able to mount the entire NFS volume. Each user will be able to navigate through the directories but they will only see the files and directories that they have access to using their UID and GID. This will also take more time to load as the number and size of the files will be quite large.  
+
+If the user only wants a specific set of data, we should be able to mount this in a similar way to the home directory.
 
 ## Sample Configuration
+
+
 
 ## Current problems
 UID does not exist in the container (I have no name) - Can't run as sudo as can't access NFS
